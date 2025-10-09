@@ -58,11 +58,13 @@ class Preprocessor:
                         self.updated_dictionary(word, target)
                         word_set.add(word)
                         target_set.add(target)
+
         if training:
             self.word_to_index = {
                 word: idx for idx, word in enumerate(sorted(word_set))
             }
             self.word_to_index["<PAD>"] = len(self.word_to_index)
+
             self.target_to_idx = {
                 target: idx
                 for idx, target in enumerate(
@@ -84,7 +86,7 @@ class Preprocessor:
 
     def updated_dictionary(self, word: str, target: str):
         if word not in self.dictionary:
-            self.dictionary[word] = list(target)
+            self.dictionary[word] = [target]
         elif target not in self.dictionary[word]:
             self.dictionary[word].append(target)
 
