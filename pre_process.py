@@ -80,10 +80,8 @@ class Preprocessor:
         return output
 
     def remain_capital_words(self, content: str) -> str:
-        result = re.sub(
-            r"\b(?![A-Z]{2,}\b)([A-Za-z]+)\b", lambda m: m.group(1).lower(), content
-        )
-        return result
+        result = re.match(r"^[A-Z]{1}[a-z]+$", content)
+        return content.lower() if result else content
 
     def make_every_sentence_same_length(
         self, sentences: List[List[List[str]]], max_length: int
