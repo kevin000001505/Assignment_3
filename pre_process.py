@@ -21,7 +21,7 @@ class Preprocessor:
         self.target_to_idx = {"<pad>": 0, "O": 1}
         self.maximize_sentence_length = 0
 
-    def load_data(self, filepath: str) -> List[List[str]]:
+    def load_data(self, filepath: str) -> List[Tuple[List[str], List[str]]]:
         """Load and preprocess data from the specified file."""
         training = self.detect_train_or_test(filepath)
         sentences = []
@@ -90,7 +90,7 @@ class Preprocessor:
         self, sentences: List[List[List[str]]], max_length: int
     ) -> List[List[List[str]]]:
 
-        for sentence in sentences:
+        for i, sentence in enumerate(sentences):
             current_length = len(sentence)
 
             if current_length < max_length:
@@ -98,11 +98,17 @@ class Preprocessor:
                 padding = [["<PAD>", "<pad>"]] * num_padding
                 sentence.extend(padding)
             else:
-                sentence = sentence[:max_length]
+                sentences[i] = sentence[:max_length]
+
+        assert all(
+            len(s) == max_length for s in sentences
+        ), "Not all sentences are the same length"
 
         return sentences
 
-    def return_training(self, sentences: List[List[List[str]]]) -> List[List[str]]:
+    def return_training(
+        self, sentences: List[List[List[str]]]
+    ) -> List[Tuple[List[str], List[str]]]:
         response = []
         for sentence in sentences:
 
