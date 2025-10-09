@@ -19,11 +19,11 @@ class Preprocessor:
         self.dictionary = {}
         self.word_to_index = {}
         self.target_to_idx = {"<pad>": 0, "O": 1}
+        self.maximize_sentence_length = 0
 
     def load_data(self, filepath: str = None) -> Tuple[List[List[str]]]:
         """Load and preprocess data from the specified file."""
         training = self.detect_train_or_test(filepath)
-        maximize_sentence_length = 0
         sentences = []
         if training:
             logger.info("Loading training data...")
@@ -41,9 +41,10 @@ class Preprocessor:
                 if line == "\n":
                     if data:
                         sentences.append(data)
-                        maximize_sentence_length = max(
-                            maximize_sentence_length, len(data)
-                        )
+                        if training:
+                            self.maximize_sentence_length = max(
+                                self.maximize_sentence_length, len(data)
+                            )
                     data = []
 
                 else:
@@ -58,7 +59,7 @@ class Preprocessor:
                         target_set.add(target)
 
         sentences = self.make_every_sentence_same_length(
-            sentences, maximize_sentence_length
+            sentences, self.maximize_sentence_length
         )
 
         if training:
@@ -95,6 +96,8 @@ class Preprocessor:
                 num_padding = max_length - current_length
                 padding = [["<PAD>", "<pad>"]] * num_padding
                 sentence.extend(padding)
+            else:
+                sentence = sentence[:max_length]
 
         return sentences
 
