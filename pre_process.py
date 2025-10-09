@@ -60,6 +60,7 @@ class Preprocessor:
         sentences = self.make_every_sentence_same_length(
             sentences, maximize_sentence_length
         )
+
         if training:
             self.word_to_index = {
                 word: idx for idx, word in enumerate(sorted(word_set))
@@ -86,17 +87,16 @@ class Preprocessor:
     def make_every_sentence_same_length(
         self, sentences: List[List[List[str]]], max_length: int
     ) -> List[List[List[str]]]:
-        padded_sentences = []
+
         for sentence in sentences:
             current_length = len(sentence)
 
             if current_length < max_length:
                 num_padding = max_length - current_length
                 padding = [["<PAD>", "<pad>"]] * num_padding
-                padded_sentence = sentence + padding
+                sentence.extend(padding)
 
-            padded_sentences.append(padded_sentence)
-        return padded_sentences
+        return sentences
 
     def return_training(self, sentences: List[List[List[str]]]) -> List[List[str]]:
         response = []
