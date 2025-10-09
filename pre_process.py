@@ -21,7 +21,7 @@ class Preprocessor:
         self.target_to_idx = {"<pad>": 0, "O": 1}
         self.maximize_sentence_length = 0
 
-    def load_data(self, filepath: str = None) -> Tuple[List[List[str]]]:
+    def load_data(self, filepath: str) -> List[List[str]]:
         """Load and preprocess data from the specified file."""
         training = self.detect_train_or_test(filepath)
         sentences = []
@@ -71,12 +71,13 @@ class Preprocessor:
             self.target_to_idx = {
                 target: idx
                 for idx, target in enumerate(
-                    sorted(target_set) if target != "<pad>" else 0, start=1
+                    sorted(t for t in target_set if t != "<pad>"), start=1
                 )
             }
+            self.target_to_idx["<pad>"] = 0
 
         logger.info(
-            f"Loaded {len(sentences)} sentences. Max sentence length: {maximize_sentence_length}"
+            f"Loaded {len(sentences)} sentences. Max sentence length: {self.maximize_sentence_length}"
         )
         output = self.return_training(sentences)
         return output
