@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from typing import List
+from typing import List, Tuple
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,9 +18,9 @@ class Preprocessor:
     def __init__(self):
         self.dictionary = {}
         self.word_to_index = {}
-        self.target_to_idx = {"<pad>": 0}
+        self.target_to_idx = {"<pad>": 0, "O": 1}
 
-    def load_data(self, filepath: str = None) -> List[List[List[str]]]:
+    def load_data(self, filepath: str = None) -> Tuple[List[List[str]]]:
         """Load and preprocess data from the specified file."""
         training = self.detect_train_or_test(filepath)
         maximize_sentence_length = 0
@@ -33,20 +33,18 @@ class Preprocessor:
             logger.info("Loading validation/test data...")
 
         with open(filepath, "rt", encoding="utf-8") as f:
-            end = False
+            data = []
             for line in f:
                 if line.startswith("-DOCSTART-"):
                     continue
-                if line == "\n" and not end:
-                    end = True
-                    data = []
-                elif line == "\n" and end:
-                    end = False
-                    maximize_sentence_length = max(maximize_sentence_length, len(data))
-                    while maximize_sentence_length >= len(data):
-                        data.append(["<PAD>", "<pad>"])
 
-                    sentences.append(data)
+                if line == "\n":
+                    if data:
+                        sentences.append(data)
+                        maximize_sentence_length = max(
+                            maximize_sentence_length, len(data)
+                        )
+                    data = []
 
                 else:
                     tokens = line.split()
@@ -59,6 +57,9 @@ class Preprocessor:
                         word_set.add(word)
                         target_set.add(target)
 
+        sentences = self.make_every_sentence_same_length(
+            sentences, maximize_sentence_length
+        )
         if training:
             self.word_to_index = {
                 word: idx for idx, word in enumerate(sorted(word_set))
@@ -75,14 +76,41 @@ class Preprocessor:
         logger.info(
             f"Loaded {len(sentences)} sentences. Max sentence length: {maximize_sentence_length}"
         )
-
-        return sentences
+        output = self.return_training(sentences)
+        return output
 
     def remain_capital_words(self, content: str) -> str:
         result = re.sub(
             r"\b(?![A-Z]{2,}\b)([A-Za-z]+)\b", lambda m: m.group(1).lower(), content
         )
         return result
+
+    def make_every_sentence_same_length(
+        self, sentences: List[List[List[str]]], max_length: int
+    ) -> List[List[List[str]]]:
+        padded_sentences = []
+        for sentence in sentences:
+            current_length = len(sentence)
+
+            if current_length < max_length:
+                num_padding = max_length - current_length
+                padding = [["<PAD>", "<pad>"]] * num_padding
+                padded_sentence = sentence + padding
+
+            padded_sentences.append(padded_sentence)
+        return padded_sentences
+
+    def return_training(self, sentences: List[List[List[str]]]) -> List[List[str]]:
+        response = []
+        for sentence in sentences:
+
+            training = []
+            targets = []
+            for word, target in sentence:
+                training.append(word)
+                targets.append(target)
+            response.append((training, targets))
+        return response
 
     def updated_dictionary(self, word: str, target: str):
         if word not in self.dictionary:
