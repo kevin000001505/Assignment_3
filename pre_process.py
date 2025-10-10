@@ -18,19 +18,17 @@ class Preprocessor:
     def __init__(self):
         self.dictionary = {}
         self.word_to_index = {}
-        self.target_to_idx = {"<pad>": 0, "O": 1}
+        self.target_to_idx = {}
         self.maximize_sentence_length = 0
+        self.word_set = set()
+        self.target_set = set()
+        self.target_set.add("<pad>")
 
     def load_data(self, filepath: str) -> List[Tuple[List[str], List[str]]]:
         """Load and preprocess data from the specified file."""
         training = self.detect_train_or_test(filepath)
         sentences = []
-        if training:
-            logger.info("Loading training data...")
-            word_set = set()
-            target_set = set()
-        else:
-            logger.info("Loading validation/test data...")
+        logger.info(f"Loading {"training" if training else "validation/test"} data...")
 
         with open(filepath, "rt", encoding="utf-8") as f:
             data = []
@@ -55,8 +53,8 @@ class Preprocessor:
                     data.append([word, target])
                     if training:
                         self.updated_dictionary(word, target)
-                        word_set.add(word)
-                        target_set.add(target)
+                        self.word_set.add(word)
+                        self.target_set.add(target)
 
         sentences = self.make_every_sentence_same_length(
             sentences, self.maximize_sentence_length
@@ -64,17 +62,18 @@ class Preprocessor:
 
         if training:
             self.word_to_index = {
-                word: idx for idx, word in enumerate(sorted(word_set))
+                word: idx for idx, word in enumerate(sorted(self.word_set))
             }
             self.word_to_index["<PAD>"] = len(self.word_to_index)
 
             self.target_to_idx = {
                 target: idx
                 for idx, target in enumerate(
-                    sorted(t for t in target_set if t != "<pad>"), start=1
+                    sorted(t for t in self.target_set)
                 )
             }
-            self.target_to_idx["<pad>"] = 0
+            print(self.target_to_idx)
+            exit()
 
         logger.info(
             f"Loaded {len(sentences)} sentences. Max sentence length: {self.maximize_sentence_length}"
