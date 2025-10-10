@@ -72,8 +72,6 @@ class Preprocessor:
                     sorted(t for t in self.target_set)
                 )
             }
-            print(self.target_to_idx)
-            exit()
 
         logger.info(
             f"Loaded {len(sentences)} sentences. Max sentence length: {self.maximize_sentence_length}"
