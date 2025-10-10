@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 logging.basicConfig(
     level=logging.INFO,
+    filemode="w",
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler("main.log"),
@@ -20,21 +21,6 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
-
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif (
-    hasattr(torch.backends, "mps")
-    and torch.backends.mps.is_built()
-    and torch.backends.mps.is_available()
-):
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-
-logger.info(f"Using device: {device}")
-cpu_count = os.cpu_count() or 4
-logger.info(f"Number of CPU cores available: {cpu_count}")
 
 
 def load_embeddings_from_bin_gz(file_path: str) -> KeyedVectors:
@@ -121,6 +107,21 @@ def get_embedding_matrix(word_to_index, embeddings, embedding_dim):
 
 def main():
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif (
+        hasattr(torch.backends, "mps")
+        and torch.backends.mps.is_built()
+        and torch.backends.mps.is_available()
+    ):
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+
+    logger.info(f"Using device: {device}")
+    cpu_count = os.cpu_count() or 4
+    logger.info(f"Number of CPU cores available: {cpu_count}")
+
     processor = Preprocessor()
     train = processor.load_data("conll2003/train.txt")
     valid = processor.load_data("conll2003/valid.txt")
@@ -186,11 +187,6 @@ def main():
             optimizer.step()
 
             epoch_loss += loss.item()
-            if (step + 1) % 100 == 0:
-                logger.info(
-                    f"Epoch [{epoch+1}/{num_epochs}], Step [{step+1}/{len(train_loader)}], "
-                    f"Loss: {loss.item():.4f}"
-                )
 
         logger.info(f"Epoch {epoch+1}, Avg Loss: {epoch_loss / len(train_loader):.4f}")
 
