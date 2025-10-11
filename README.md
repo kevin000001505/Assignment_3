@@ -1,5 +1,5 @@
 ```bash
-pip install - e.
+pip install -e .
 ```
 
 ### **Next Work**
