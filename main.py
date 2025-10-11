@@ -125,6 +125,7 @@ def get_embedding_matrix(word_to_index, embeddings, embedding_dim):
             embedding_matrix[idx] = np.random.normal(scale=0.6, size=(embedding_dim,))
     return embedding_matrix
 
+
 def train_RNN(
     preWeights,
     train_loader,
@@ -133,12 +134,12 @@ def train_RNN(
     bidirect: bool = False,
     device: torch.device = torch.device("mps"),
     loss_record: list[list[float]] = [],
-    hidden_size = 256,
-    n_layers = 1,
-    pad_tag_id = 0,
-    num_classes = 10,
-    learning_rate = 0.0001,
-    loss_delta = 1e-3
+    hidden_size=256,
+    n_layers=1,
+    pad_tag_id=0,
+    num_classes=10,
+    learning_rate=0.0001,
+    loss_delta=1e-3,
 ):
     nn_model = VanillaRNN(
         preWeights=preWeights,
@@ -168,15 +169,15 @@ def train_RNN(
             optimizer.zero_grad()
             logits = nn_model(inputs)
 
-            predicted = torch.argmax(logits, dim=2) # Shape: [batch, seq_len]
-            
+            predicted = torch.argmax(logits, dim=2)  # Shape: [batch, seq_len]
+
             # Create a mask to ignore padding tokens in accuracy calculation
             # We don't want to penalize the model for predictions on padding
-            mask = (labels != pad_tag_id)
-            
+            mask = labels != pad_tag_id
+
             # Compare predictions to true labels where mask is True
             total_correct += (predicted[mask] == labels[mask]).sum().item()
-            
+
             # The total number of samples is the number of non-padded tokens
             total_samples += mask.sum().item()
 
@@ -188,7 +189,7 @@ def train_RNN(
             optimizer.step()
 
             epoch_loss += loss.item()
-        
+
         avg_loss = epoch_loss / len(train_loader)
         loss_record[-1].append(avg_loss)
 
@@ -199,14 +200,23 @@ def train_RNN(
             f"Accuracy: {epoch_acc:.2f}%"
         )
         epoch += 1
-    logger.info(f"Vanilla{layer_mode} {direction} {"embbed" if fine_tune else ""} training done")
+    logger.info(
+        f"Vanilla{layer_mode} {direction} {"embbed" if fine_tune else ""} training done"
+    )
     loss_record[-1] = loss_record[-1][2:]
     x = range(len(loss_record[-1]))
-    plt.plot(x, loss_record[-1], label=f"{layer_mode} {direction} {"embbed" if fine_tune else ""}")
+    plt.plot(
+        x,
+        loss_record[-1],
+        label=f"{layer_mode} {direction} {"embbed" if fine_tune else ""}",
+    )
 
-    save_path = f"./results/train/{layer_mode}_{direction}{"_embbed" if fine_tune else ""}.pth"
+    save_path = (
+        f"./results/train/{layer_mode}_{direction}{"_embbed" if fine_tune else ""}.pth"
+    )
     torch.save(nn_model.state_dict(), save_path)
     logger.info(f"Model weights saved to {save_path}")
+
 
 def eval_RNN(
     preWeights,
@@ -215,10 +225,10 @@ def eval_RNN(
     layer_mode: str = "RNN",
     bidirect: bool = False,
     device: torch.device = torch.device("mps"),
-    hidden_size = 256,
-    n_layers = 1,
-    num_classes = 10,
-    fine_tune: bool = False
+    hidden_size=256,
+    n_layers=1,
+    num_classes=10,
+    fine_tune: bool = False,
 ):
     nn_model = VanillaRNN(
         preWeights=preWeights,
@@ -236,7 +246,7 @@ def eval_RNN(
     logger.info(f"Generating validation file for {file_name}...")
 
     nn_model.eval()
-    
+
     txt = f"./results/valid/{file_name}.txt"
     with open(txt, "w") as f:
         with torch.no_grad():
@@ -244,25 +254,30 @@ def eval_RNN(
             idx_to_target = processor.idx_to_target
             for inputs, labels in valid_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
-                
+
                 # Get model predictions
                 logits = nn_model(inputs)
                 predicted = torch.argmax(logits, dim=2)
 
-                for i in range(inputs.shape[0]): # For each sentence
+                for i in range(inputs.shape[0]):  # For each sentence
                     input_words = [idx_to_word[idx.item()] for idx in inputs[i]]
                     real_tags = [idx_to_target[idx.item()] for idx in labels[i]]
-                    predicted_tags = [idx_to_target[int(idx.item())] for idx in predicted[i]]
-                    
+                    predicted_tags = [
+                        idx_to_target[int(idx.item())] for idx in predicted[i]
+                    ]
+
                     # Write results for one sentence
-                    for word, r_tag, p_tag in zip(input_words, real_tags, predicted_tags):
+                    for word, r_tag, p_tag in zip(
+                        input_words, real_tags, predicted_tags
+                    ):
                         # Don't write out the padding
                         # NOTE have to remove predicted tag <pad> too or it'll break the eval code
                         if word != "<PAD>" and p_tag != "<pad>":
                             f.write(f"{word} {r_tag} {p_tag}\n")
-    
+
     logger.info(f"Generated {file_name}")
     logger.info(eval.evaluate_conll_file(open(txt, "r")))
+
 
 def main():
 
@@ -305,7 +320,7 @@ def main():
         batch_size=8,
         shuffle=True,
         num_workers=cpu_count // 2,
-        pin_memory=True
+        pin_memory=True,
     )
 
     # Load Google's pre-trained Word2Vec embeddings
@@ -321,7 +336,7 @@ def main():
     pad_tag_id = processor.target_to_idx["<pad>"]
     num_classes = len(processor.target_to_idx)
     learning_rate = 1e-4
-    loss_delta = 1e-4 # Stop if training stops improving after this threshold
+    loss_delta = 1e-4  # Stop if training stops improving after this threshold
 
     os.makedirs("./results/train", exist_ok=True)
     os.makedirs("./results/valid", exist_ok=True)
@@ -330,14 +345,14 @@ def main():
     # Train 6 combinations of RNN hidden layers and uni/bi-directional
     loss_record = []
     combo = []
-    
+
     for layer_mode in ["RNN", "LSTM", "GRU"]:
         for bidirect in [False, True]:
             combo.append((layer_mode, bidirect))
             train_RNN(
                 preWeights,
                 train_loader,
-                False, # Freeze weights for the first 6 models
+                False,  # Freeze weights for the first 6 models
                 layer_mode,
                 bidirect,
                 device,
@@ -347,9 +362,9 @@ def main():
                 pad_tag_id,
                 num_classes,
                 learning_rate,
-                loss_delta
+                loss_delta,
             )
-    
+
     # Pick the best performing one and train again while also updating embeddings
     # TODO Bonus point
     avg_losses = [rec[-1] for rec in loss_record]
@@ -357,7 +372,7 @@ def main():
     train_RNN(
         preWeights,
         train_loader,
-        True, # Update weights while training
+        True,  # Update weights while training
         combo[min_loss_i][0],
         combo[min_loss_i][1],
         device,
@@ -367,14 +382,14 @@ def main():
         pad_tag_id,
         num_classes,
         learning_rate,
-        loss_delta
+        loss_delta,
     )
 
     plt.xlabel("Epoch")
     plt.ylabel("Average Loss")
     plt.title(f"Training loss curves")
     plt.legend()
-    plt.xscale('log')
+    plt.xscale("log")
     plt.grid(True)
     plt.savefig(f"./results/train/train_loss_curve.png")
     logger.info("Loss curve saved. Check ./results/train/train_loss_curve.png")
@@ -382,10 +397,10 @@ def main():
     validation_dataset = TensorDataset(X_valid, y_valid)
     valid_loader = DataLoader(
         validation_dataset,
-        batch_size=64, # This is for validation so just increase until full memory usage
+        batch_size=64,  # This is for validation so just increase until full memory usage
         shuffle=True,
         num_workers=cpu_count // 2,
-        pin_memory=True
+        pin_memory=True,
     )
     for mode, bidirect in combo:
         eval_RNN(
@@ -397,9 +412,9 @@ def main():
             device,
             hidden_size,
             n_layers,
-            num_classes
+            num_classes,
         )
-    
+
     eval_RNN(
         preWeights,
         valid_loader,
@@ -409,8 +424,9 @@ def main():
         device,
         hidden_size,
         n_layers,
-        num_classes
+        num_classes,
     )
+
 
 if __name__ == "__main__":
     main()
