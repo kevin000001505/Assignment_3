@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 class Preprocessor:
     def __init__(self):
         self.dictionary = {}
-        self.word_to_index = {}
+        self.word_to_idx = {}
+        self.idx_to_word = {}
         self.target_to_idx = {}
+        self.idx_to_target = {}
         self.maximize_sentence_length = 0
         self.word_set = set()
         self.target_set = set()
@@ -61,16 +63,24 @@ class Preprocessor:
         )
 
         if training:
-            self.word_to_index = {
+            self.word_to_idx = {
                 word: idx for idx, word in enumerate(sorted(self.word_set))
             }
-            self.word_to_index["<PAD>"] = len(self.word_to_index)
+            self.word_to_idx["<PAD>"] = len(self.word_to_idx)
+            self.idx_to_word = {
+                idx: word
+                for word, idx in self.word_to_idx.items()
+            }
 
             self.target_to_idx = {
                 target: idx
                 for idx, target in enumerate(
                     sorted(t for t in self.target_set)
                 )
+            }
+            self.idx_to_target = {
+                idx: tag
+                for tag, idx in self.target_to_idx.items()
             }
 
         logger.info(

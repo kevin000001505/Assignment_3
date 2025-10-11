@@ -8,10 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
-conll2003
 *.ipynb
 *.pdf
 *.png
+*.pth
+*.txt
 GoogleNews-vectors-negative300.bin.gz
 .DS_Store
 main.log
