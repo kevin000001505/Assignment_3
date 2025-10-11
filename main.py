@@ -302,7 +302,7 @@ def main():
     train_dataset = TensorDataset(X_train, y_train)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=32,
+        batch_size=8,
         shuffle=True,
         num_workers=cpu_count // 2,
         pin_memory=True
@@ -321,7 +321,7 @@ def main():
     pad_tag_id = processor.target_to_idx["<pad>"]
     num_classes = len(processor.target_to_idx)
     learning_rate = 1e-4
-    loss_delta = 1e-1 # Stop if training stops improving after this threshold
+    loss_delta = 1e-4 # Stop if training stops improving after this threshold
 
     os.makedirs("./results/train", exist_ok=True)
     os.makedirs("./results/valid", exist_ok=True)
@@ -382,7 +382,7 @@ def main():
     validation_dataset = TensorDataset(X_valid, y_valid)
     valid_loader = DataLoader(
         validation_dataset,
-        batch_size=32,
+        batch_size=64, # This is for validation so just increase until full memory usage
         shuffle=True,
         num_workers=cpu_count // 2,
         pin_memory=True
