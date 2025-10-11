@@ -261,7 +261,7 @@ def eval_RNN(
                         if word != "<PAD>" and p_tag != "<pad>":
                             f.write(f"{word} {r_tag} {p_tag}\n")
     
-    logger.info(f"Generated {file_name}")
+    logger.info(f"Generated {file_name} {"embbed" if fine_tune else ""}")
     logger.info(eval.evaluate_conll_file(open(txt, "r")))
 
 def main():
@@ -397,7 +397,8 @@ def main():
             device,
             hidden_size,
             n_layers,
-            num_classes
+            num_classes,
+            False
         )
     
     eval_RNN(
@@ -409,7 +410,8 @@ def main():
         device,
         hidden_size,
         n_layers,
-        num_classes
+        num_classes,
+        True
     )
 
 if __name__ == "__main__":
