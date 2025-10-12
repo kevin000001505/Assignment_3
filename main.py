@@ -282,7 +282,7 @@ def eval_RNN(
                         # NOTE have to remove predicted tag <pad> too or it'll break the eval code
                         if word != "<PAD>" and p_tag != "<pad>":
                             f.write(f"{word} {r_tag} {p_tag}\n")
-    
+
     logger.info(f"Generated {file_name} {"embbed" if fine_tune else ""}")
     logger.info(eval.evaluate_conll_file(open(txt, "r")))
 
@@ -353,7 +353,7 @@ def main():
     n_layers = 1
     pad_tag_id = processor.target_to_idx["<pad>"]
     num_classes = len(processor.target_to_idx)
-    learning_rate = 1e-4
+    learning_rate = 1e-5
     loss_delta = 1e-5  # Stop if training stops improving after this threshold
 
     os.makedirs("./results/train", exist_ok=True)
@@ -427,6 +427,18 @@ def main():
             n_layers,
             num_classes,
         )
+    eval_RNN(
+        preWeights,
+        test_loader,
+        processor,
+        combo[min_loss_i][0],
+        combo[min_loss_i][1],
+        device,
+        hidden_size,
+        n_layers,
+        num_classes,
+        True,
+    )
 
     logger.info(
         f"Evaluating the best model after fine-tuning embeddings on test set: Model: {combo[min_loss_i][0]} {'bidirectional' if combo[min_loss_i][1] else 'unidirectional'}"
