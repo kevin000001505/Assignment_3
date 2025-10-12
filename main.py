@@ -1,16 +1,21 @@
 import os
-import re
 import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
-from gensim.models import KeyedVectors, Word2Vec
+from torch.optim.lr_scheduler import StepLR
 from typing import List, Tuple
 from pre_process import Preprocessor
 from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 import conll2003.conlleval as eval
+from model import VanillaRNN
+from utils import (
+    get_embedding_matrix,
+    transform_data,
+    load_embeddings_from_bin_gz,
+    configuration,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,122 +29,77 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_embeddings_from_bin_gz(file_path: str) -> KeyedVectors:
-    """Load Word2Vec embeddings from a compressed binary file."""
-    logger.info("Loading Word2Vec embeddings...")
-    embeddings = KeyedVectors.load_word2vec_format(file_path, binary=True)
-    logger.info(
-        f"Loaded {len(embeddings)} word vectors with {embeddings.vector_size} dimensions"
-    )
-    return embeddings
+def calculate_accuracy(
+    logits: torch.Tensor, labels: torch.Tensor, pad_tag_id: int
+) -> float:
+    """Calculate accuracy by comparing predictions to true labels, ignoring padding tokens.
 
+    Args:
+        logits (torch.Tensor): Model output logits with shape (batch * seq_len, num_classes).
+        labels (torch.Tensor): True labels with shape (batch * seq_len).
+        pad_tag_id (int): ID of the padding tag to ignore in accuracy calculation.
 
-class VanillaRNN(nn.Module):
+    Returns:
+        float: Accuracy percentage (0-100) for non-padded tokens.
+    """
+    total_correct = 0
+    total_samples = 0
 
-    def __init__(
-        self,
-        preWeights,
-        layer_mode: str = "RNN",
-        fine_tune=False,
-        bidirect=False,
-        hiddenSize=256,
-        n_layers=1,
-        num_classes=10,
-    ):
-        super(VanillaRNN, self).__init__()
+    predicted = torch.argmax(logits, dim=1)  # Shape: [batch * seq_len]
 
-        # parameters
-        vocab_size, dim_size = preWeights.shape
-        num_directions = 2 if bidirect else 1
+    # Create a mask to ignore padding tokens in accuracy calculation
+    # We don't want to penalize the model for predictions on padding
+    mask = labels != pad_tag_id
 
-        # embedding Layer
-        # Because in tensor([[42, 17, 108, ...]]) Pytorch will
-        # automatically do self.embedding[42], self.embedding[17], self.embedding[108], ...
-        # So we have to let the index match our word_to_index
-        self.embedding = nn.Embedding(vocab_size, dim_size)
-        self.embedding.load_state_dict({"weight": torch.FloatTensor(preWeights)})
+    # Compare predictions to true labels where mask is True
+    total_correct += (predicted[mask] == labels[mask]).sum().item()
 
-        self.embedding.weight.requires_grad = fine_tune
+    # The total number of samples is the number of non-padded tokens
+    total_samples += mask.sum().item()
+    epoch_acc = (total_correct / total_samples) * 100
+    return epoch_acc
 
-        if layer_mode == "RNN":
-            self.nn = nn.RNN(
-                input_size=dim_size,
-                hidden_size=hiddenSize,
-                num_layers=n_layers,
-                bidirectional=bidirect,
-                batch_first=True,
-            )
-        elif layer_mode == "LSTM":
-            self.nn = nn.LSTM(
-                input_size=dim_size,
-                hidden_size=hiddenSize,
-                num_layers=n_layers,
-                bidirectional=bidirect,
-                batch_first=True,
-            )
-        elif layer_mode == "GRU":
-            self.nn = nn.GRU(
-                input_size=dim_size,
-                hidden_size=hiddenSize,
-                num_layers=n_layers,
-                bidirectional=bidirect,
-                batch_first=True,
-            )
-        else:
-            raise ValueError("Invalid layer_mode variable.")
-        self.fc = nn.Linear(hiddenSize * num_directions, num_classes)
-
-    def forward(self, x):
-        embeds = self.embedding(x)
-        nn_out, _ = self.nn(embeds)
-        logits = self.fc(nn_out)
-        return logits
-
-
-def transform_data(
-    data: List[Tuple[List[str], List[str]]],
-    word_to_index,
-    target_to_idx,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Transform data into tensors of indices."""
-    X = []
-    Y = []
-    for sentence, targets in data:
-        x_indices = [
-            word_to_index.get(word, word_to_index["<PAD>"]) for word in sentence
-        ]
-        y_indices = [target_to_idx.get(tag, target_to_idx["<pad>"]) for tag in targets]
-        X.append(x_indices)
-        Y.append(y_indices)
-    return torch.tensor(X, dtype=torch.long), torch.tensor(Y, dtype=torch.long)
-
-
-def get_embedding_matrix(word_to_index, embeddings, embedding_dim):
-    vocab_size = len(word_to_index)
-    embedding_matrix = np.zeros((vocab_size, embedding_dim))
-    for word, idx in word_to_index.items():
-        if word in embeddings:
-            # We change the row of value to embedding by the word_to_index
-            embedding_matrix[idx] = embeddings[word]
-        else:
-            embedding_matrix[idx] = np.random.normal(scale=0.6, size=(embedding_dim,))
-    return embedding_matrix
 
 def train_RNN(
-    preWeights,
-    train_loader,
+    preWeights: torch.Tensor,
+    train_loader: DataLoader,
+    valid_loader: DataLoader,
     fine_tune: bool = False,
     layer_mode: str = "RNN",
     bidirect: bool = False,
     device: torch.device = torch.device("mps"),
     loss_record: list[list[float]] = [],
-    hidden_size = 256,
-    n_layers = 1,
-    pad_tag_id = 0,
-    num_classes = 10,
-    learning_rate = 0.0001,
-    loss_delta = 1e-3
+    hidden_size=256,
+    n_layers=1,
+    pad_tag_id=0,
+    num_classes=10,
+    learning_rate=0.0001,
+    loss_delta=1e-3,
+    lr_step_size: int = 20,
+    lr_gamma: float = 0.5,
+    n_epoches: int = 1000,
 ):
+    """Train an RNN-based sequence tagging model with early stopping and learning rate scheduling.
+
+    Args:
+        preWeights (torch.Tensor): Pre-trained embedding weights matrix.
+        train_loader (DataLoader): Training data loader.
+        valid_loader (DataLoader): Validation data loader.
+        fine_tune (bool): Whether to fine-tune embedding weights during training.
+        layer_mode (str): Type of RNN layer ("RNN", "LSTM", or "GRU").
+        bidirect (bool): Whether to use bidirectional RNN.
+        device (torch.device): Device to run training on.
+        loss_record (list): List to store training loss curves.
+        hidden_size (int): Hidden size of RNN layers.
+        n_layers (int): Number of RNN layers.
+        pad_tag_id (int): ID of padding tag for loss masking.
+        num_classes (int): Number of output classes.
+        learning_rate (float): Initial learning rate.
+        loss_delta (float): Minimum improvement threshold for early stopping.
+        lr_step_size (int): Step size for learning rate scheduler.
+        lr_gamma (float): Multiplicative factor for learning rate decay.
+        n_epoches (int): Maximum number of training epochs.
+    """
     nn_model = VanillaRNN(
         preWeights=preWeights,
         layer_mode=layer_mode,
@@ -151,34 +111,29 @@ def train_RNN(
     ).to(device)
 
     optimizer = optim.Adam(nn_model.parameters(), lr=learning_rate)
+    scheduler = StepLR(optimizer, step_size=lr_step_size, gamma=lr_gamma)
     criterion = nn.CrossEntropyLoss(ignore_index=pad_tag_id)
 
     direction = "bidirectional" if bidirect else "unidirectional"
     logger.info(f"Start training for Vanilla{layer_mode} {direction}:")
     loss_record.append([200.0, 100.0])
-    epoch = 0
-    while loss_record[-1][-2] - loss_record[-1][-1] > loss_delta:
+
+    best_val_loss = float("inf")
+    best_model = None
+    patience = 10
+    epoch_no_improve = 0
+
+    # Early stopping condition: stop if the improvement in loss is less than loss_delta
+    for epoch in range(n_epoches):
+        nn_model.train()
         epoch_loss = 0.0
-        total_correct = 0
-        total_samples = 0
+        val_loss = 0.0
 
         for inputs, labels in train_loader:
             inputs, labels = inputs.to(device), labels.to(device)
 
             optimizer.zero_grad()
             logits = nn_model(inputs)
-
-            predicted = torch.argmax(logits, dim=2) # Shape: [batch, seq_len]
-            
-            # Create a mask to ignore padding tokens in accuracy calculation
-            # We don't want to penalize the model for predictions on padding
-            mask = (labels != pad_tag_id)
-            
-            # Compare predictions to true labels where mask is True
-            total_correct += (predicted[mask] == labels[mask]).sum().item()
-            
-            # The total number of samples is the number of non-padded tokens
-            total_samples += mask.sum().item()
 
             logits = logits.view(-1, num_classes)
             labels = labels.view(-1)
@@ -188,38 +143,101 @@ def train_RNN(
             optimizer.step()
 
             epoch_loss += loss.item()
-        
-        avg_loss = epoch_loss / len(train_loader)
-        loss_record[-1].append(avg_loss)
 
-        epoch_acc = (total_correct / total_samples) * 100
+        nn_model.eval()
+        with torch.no_grad():
+            for inputs, labels in valid_loader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = nn_model(inputs)
+
+                outputs = outputs.view(-1, num_classes)
+                labels = labels.view(-1)
+
+                # This return only float values, not tensors
+                val_loss += criterion(outputs, labels).item()
+
+        epoch_acc = calculate_accuracy(outputs, labels, pad_tag_id)
+
+        avg_loss = epoch_loss / len(train_loader)
+        avg_val_loss = val_loss / len(valid_loader)
+
+        # Change to validation loss for early stopping
+        loss_record[-1].append(avg_val_loss)
+
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_model = nn_model.state_dict().copy()
+            logger.info(
+                f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.7f}"
+            )
+            epoch_no_improve = 0
+        else:
+            epoch_no_improve += 1
+            logger.info(f"No improvement in val loss for {epoch_no_improve} epochs")
+
+        # Both condition satisfy to stop training
+        if (
+            epoch_no_improve >= patience
+            and loss_record[-1][-2] - loss_record[-1][-1] > loss_delta
+        ):
+            logger.info(
+                f"Early stopping triggered after {patience} epochs with no improvement"
+            )
+            break
+
+        # Step the LR scheduler based on epoch and log current LR
+        scheduler.step()
         logger.info(
             f"Epoch {epoch+1}, "
             f"Avg Loss: {avg_loss:.4f}, "
-            f"Accuracy: {epoch_acc:.2f}%"
+            f"Val Accuracy: {epoch_acc:.2f}% "
+            f"Val Loss: {avg_val_loss:.7f} "
         )
         epoch += 1
-    logger.info(f"Vanilla{layer_mode} {direction} {"embbed" if fine_tune else ""} training done")
+    logger.info(
+        f"Vanilla{layer_mode} {direction} {"embbed" if fine_tune else ""} training done"
+    )
     loss_record[-1] = loss_record[-1][2:]
     x = range(len(loss_record[-1]))
-    plt.plot(x, loss_record[-1], label=f"{layer_mode} {direction} {"embbed" if fine_tune else ""}")
+    plt.plot(
+        x,
+        loss_record[-1],
+        label=f"{layer_mode} {direction} {"embbed" if fine_tune else ""}",
+    )
 
-    save_path = f"./results/train/{layer_mode}_{direction}{"_embbed" if fine_tune else ""}.pth"
-    torch.save(nn_model.state_dict(), save_path)
+    save_path = (
+        f"./results/train/{layer_mode}_{direction}{"_embbed" if fine_tune else ""}.pth"
+    )
+    torch.save(best_model, save_path)
     logger.info(f"Model weights saved to {save_path}")
 
+
 def eval_RNN(
-    preWeights,
-    valid_loader,
+    preWeights: torch.Tensor,
+    test_loader: DataLoader,
     processor: Preprocessor,
     layer_mode: str = "RNN",
     bidirect: bool = False,
     device: torch.device = torch.device("mps"),
-    hidden_size = 256,
-    n_layers = 1,
-    num_classes = 10,
-    fine_tune: bool = False
+    hidden_size=256,
+    n_layers=1,
+    num_classes=10,
+    fine_tune: bool = False,
 ):
+    """Evaluate a trained RNN model on test data and generate prediction file for CoNLL evaluation.
+
+    Args:
+        preWeights (torch.Tensor): Pre-trained embedding weights matrix.
+        test_loader (DataLoader): Test data loader.
+        processor (Preprocessor): Preprocessor instance with word/tag mappings.
+        layer_mode (str): Type of RNN layer ("RNN", "LSTM", or "GRU").
+        bidirect (bool): Whether model uses bidirectional RNN.
+        device (torch.device): Device to run evaluation on.
+        hidden_size (int): Hidden size of RNN layers.
+        n_layers (int): Number of RNN layers.
+        num_classes (int): Number of output classes.
+        fine_tune (bool): Whether model was fine-tuned (affects saved model filename).
+    """
     nn_model = VanillaRNN(
         preWeights=preWeights,
         layer_mode=layer_mode,
@@ -233,29 +251,33 @@ def eval_RNN(
     file_name = f"{layer_mode}_{direction}{"_embbed" if fine_tune else ""}"
     saved_weights_path = f"./results/train/{file_name}.pth"
     nn_model.load_state_dict(torch.load(saved_weights_path))
-    logger.info(f"Generating validation file for {file_name}...")
+    logger.info(f"Generating test file for {file_name}...")
 
     nn_model.eval()
-    
-    txt = f"./results/valid/{file_name}.txt"
+
+    txt = f"./results/test/{file_name}.txt"
     with open(txt, "w") as f:
         with torch.no_grad():
             idx_to_word = processor.idx_to_word
             idx_to_target = processor.idx_to_target
-            for inputs, labels in valid_loader:
+            for inputs, labels in test_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
-                
+
                 # Get model predictions
                 logits = nn_model(inputs)
                 predicted = torch.argmax(logits, dim=2)
 
-                for i in range(inputs.shape[0]): # For each sentence
+                for i in range(inputs.shape[0]):  # For each sentence
                     input_words = [idx_to_word[idx.item()] for idx in inputs[i]]
                     real_tags = [idx_to_target[idx.item()] for idx in labels[i]]
-                    predicted_tags = [idx_to_target[int(idx.item())] for idx in predicted[i]]
-                    
+                    predicted_tags = [
+                        idx_to_target[int(idx.item())] for idx in predicted[i]
+                    ]
+
                     # Write results for one sentence
-                    for word, r_tag, p_tag in zip(input_words, real_tags, predicted_tags):
+                    for word, r_tag, p_tag in zip(
+                        input_words, real_tags, predicted_tags
+                    ):
                         # Don't write out the padding
                         # NOTE have to remove predicted tag <pad> too or it'll break the eval code
                         if word != "<PAD>" and p_tag != "<pad>":
@@ -264,23 +286,15 @@ def eval_RNN(
     logger.info(f"Generated {file_name} {"embbed" if fine_tune else ""}")
     logger.info(eval.evaluate_conll_file(open(txt, "r")))
 
+
 def main():
+    """Main function to train and evaluate RNN models for sequence tagging.
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif (
-        hasattr(torch.backends, "mps")
-        and torch.backends.mps.is_built()
-        and torch.backends.mps.is_available()
-    ):
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-
-    logger.info(f"Using device: {device}")
-    cpu_count = os.cpu_count() or 4
-    logger.info(f"Number of CPU cores available: {cpu_count}")
-
+    Loads data, trains multiple RNN variants (RNN/LSTM/GRU with uni/bidirectional),
+    selects the best model for fine-tuning with embeddings, and evaluates all models
+    on test data using CoNLL evaluation metrics.
+    """
+    device, cpu_count = configuration()
     processor = Preprocessor()
     train = processor.load_data("conll2003/train.txt")
     valid = processor.load_data("conll2003/valid.txt")
@@ -302,10 +316,28 @@ def main():
     train_dataset = TensorDataset(X_train, y_train)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=8,
+        batch_size=64,
         shuffle=True,
         num_workers=cpu_count // 2,
-        pin_memory=True
+        pin_memory=True if device.type == "cuda" else False,
+    )
+
+    validation_dataset = TensorDataset(X_valid, y_valid)
+    valid_loader = DataLoader(
+        validation_dataset,
+        batch_size=512,  # This is for validation so just increase until full memory usage
+        shuffle=True,
+        num_workers=cpu_count // 2,
+        pin_memory=True if device.type == "cuda" else False,
+    )
+
+    test_dataset = TensorDataset(X_test, y_test)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=512,  # This is for testing so just increase until full memory usage
+        shuffle=True,
+        num_workers=cpu_count // 2,
+        pin_memory=True if device.type == "cuda" else False,
     )
 
     # Load Google's pre-trained Word2Vec embeddings
@@ -314,6 +346,7 @@ def main():
     preWeights = get_embedding_matrix(
         processor.word_to_idx, embeddings, embeddings.vector_size
     )
+
     logger.info(f"Embedding matrix shape: {preWeights.shape}")
 
     hidden_size = 256
@@ -321,23 +354,25 @@ def main():
     pad_tag_id = processor.target_to_idx["<pad>"]
     num_classes = len(processor.target_to_idx)
     learning_rate = 1e-4
-    loss_delta = 1e-4 # Stop if training stops improving after this threshold
+    loss_delta = 1e-5  # Stop if training stops improving after this threshold
 
     os.makedirs("./results/train", exist_ok=True)
-    os.makedirs("./results/valid", exist_ok=True)
     os.makedirs("./results/test", exist_ok=True)
 
     # Train 6 combinations of RNN hidden layers and uni/bi-directional
     loss_record = []
+
+    # store [Model, bidirectional]
     combo = []
-    
+
     for layer_mode in ["RNN", "LSTM", "GRU"]:
         for bidirect in [False, True]:
             combo.append((layer_mode, bidirect))
             train_RNN(
                 preWeights,
                 train_loader,
-                False, # Freeze weights for the first 6 models
+                valid_loader,
+                False,  # Freeze weights for the first 6 models
                 layer_mode,
                 bidirect,
                 device,
@@ -347,9 +382,9 @@ def main():
                 pad_tag_id,
                 num_classes,
                 learning_rate,
-                loss_delta
+                loss_delta,
             )
-    
+
     # Pick the best performing one and train again while also updating embeddings
     # TODO Bonus point
     avg_losses = [rec[-1] for rec in loss_record]
@@ -357,7 +392,8 @@ def main():
     train_RNN(
         preWeights,
         train_loader,
-        True, # Update weights while training
+        valid_loader,
+        True,  # Update weights while training
         combo[min_loss_i][0],
         combo[min_loss_i][1],
         device,
@@ -367,30 +403,22 @@ def main():
         pad_tag_id,
         num_classes,
         learning_rate,
-        loss_delta
+        loss_delta,
     )
 
     plt.xlabel("Epoch")
     plt.ylabel("Average Loss")
-    plt.title(f"Training loss curves")
+    plt.title("Training loss curves")
     plt.legend()
-    plt.xscale('log')
+    plt.xscale("log")
     plt.grid(True)
-    plt.savefig(f"./results/train/train_loss_curve.png")
+    plt.savefig("./results/train/train_loss_curve.png")
     logger.info("Loss curve saved. Check ./results/train/train_loss_curve.png")
 
-    validation_dataset = TensorDataset(X_valid, y_valid)
-    valid_loader = DataLoader(
-        validation_dataset,
-        batch_size=64, # This is for validation so just increase until full memory usage
-        shuffle=True,
-        num_workers=cpu_count // 2,
-        pin_memory=True
-    )
     for mode, bidirect in combo:
         eval_RNN(
             preWeights,
-            valid_loader,
+            test_loader,
             processor,
             mode,
             bidirect,
@@ -398,21 +426,12 @@ def main():
             hidden_size,
             n_layers,
             num_classes,
-            False
         )
-    
-    eval_RNN(
-        preWeights,
-        valid_loader,
-        processor,
-        combo[min_loss_i][0],
-        combo[min_loss_i][1],
-        device,
-        hidden_size,
-        n_layers,
-        num_classes,
-        True
+
+    logger.info(
+        f"Evaluating the best model after fine-tuning embeddings on test set: Model: {combo[min_loss_i][0]} {'bidirectional' if combo[min_loss_i][1] else 'unidirectional'}"
     )
+
 
 if __name__ == "__main__":
     main()
