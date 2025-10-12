@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 def configuration():
+    """Detect available compute device and number of CPU cores.
+
+    Returns:
+        tuple: (torch.device, int) device to use and CPU core count.
+    """
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif (
@@ -36,7 +41,14 @@ def configuration():
 
 
 def load_embeddings_from_bin_gz(file_path: str) -> KeyedVectors:
-    """Load Word2Vec embeddings from a compressed binary file."""
+    """Load Word2Vec embeddings from a binary (possibly compressed) file.
+
+    Args:
+        file_path (str): Path to the word2vec-format binary file.
+
+    Returns:
+        KeyedVectors: Gensim KeyedVectors object with loaded embeddings.
+    """
     logger.info("Loading Word2Vec embeddings...")
     embeddings = KeyedVectors.load_word2vec_format(file_path, binary=True)
     logger.info(
@@ -50,7 +62,16 @@ def transform_data(
     word_to_index,
     target_to_idx,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Transform data into tensors of indices."""
+    """Convert dataset of token/tag pairs into index tensors.
+
+    Args:
+        data: List of (sentence_tokens, sentence_tags).
+        word_to_index: Mapping from token -> index (must contain "<PAD>").
+        target_to_idx: Mapping from tag -> index (must contain "<pad>").
+
+    Returns:
+        Tuple[torch.LongTensor, torch.LongTensor]: X tensor (batch, seq_len) and Y tensor (batch, seq_len).
+    """
     X = []
     Y = []
     for sentence, targets in data:
@@ -64,6 +85,19 @@ def transform_data(
 
 
 def get_embedding_matrix(word_to_index, embeddings, embedding_dim) -> torch.Tensor:
+    """Build an embedding matrix aligned with word_to_index.
+
+    For words present in the provided embeddings, their vectors are used;
+    missing words receive a random normal vector.
+
+    Args:
+        word_to_index: Mapping from token -> index.
+        embeddings: Gensim KeyedVectors or dict-like mapping of word -> vector.
+        embedding_dim: Dimensionality of embeddings.
+
+    Returns:
+        torch.FloatTensor: Matrix of shape (vocab_size, embedding_dim).
+    """
     vocab_size = len(word_to_index)
     embedding_matrix = np.zeros((vocab_size, embedding_dim))
     for word, idx in word_to_index.items():

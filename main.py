@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 def calculate_accuracy(
     logits: torch.Tensor, labels: torch.Tensor, pad_tag_id: int
 ) -> float:
+    """Calculate accuracy by comparing predictions to true labels, ignoring padding tokens.
+
+    Args:
+        logits (torch.Tensor): Model output logits with shape (batch * seq_len, num_classes).
+        labels (torch.Tensor): True labels with shape (batch * seq_len).
+        pad_tag_id (int): ID of the padding tag to ignore in accuracy calculation.
+
+    Returns:
+        float: Accuracy percentage (0-100) for non-padded tokens.
+    """
     total_correct = 0
     total_samples = 0
 
@@ -69,6 +79,27 @@ def train_RNN(
     lr_gamma: float = 0.5,
     n_epoches: int = 1000,
 ):
+    """Train an RNN-based sequence tagging model with early stopping and learning rate scheduling.
+
+    Args:
+        preWeights (torch.Tensor): Pre-trained embedding weights matrix.
+        train_loader (DataLoader): Training data loader.
+        valid_loader (DataLoader): Validation data loader.
+        fine_tune (bool): Whether to fine-tune embedding weights during training.
+        layer_mode (str): Type of RNN layer ("RNN", "LSTM", or "GRU").
+        bidirect (bool): Whether to use bidirectional RNN.
+        device (torch.device): Device to run training on.
+        loss_record (list): List to store training loss curves.
+        hidden_size (int): Hidden size of RNN layers.
+        n_layers (int): Number of RNN layers.
+        pad_tag_id (int): ID of padding tag for loss masking.
+        num_classes (int): Number of output classes.
+        learning_rate (float): Initial learning rate.
+        loss_delta (float): Minimum improvement threshold for early stopping.
+        lr_step_size (int): Step size for learning rate scheduler.
+        lr_gamma (float): Multiplicative factor for learning rate decay.
+        n_epoches (int): Maximum number of training epochs.
+    """
     nn_model = VanillaRNN(
         preWeights=preWeights,
         layer_mode=layer_mode,
@@ -193,6 +224,20 @@ def eval_RNN(
     num_classes=10,
     fine_tune: bool = False,
 ):
+    """Evaluate a trained RNN model on test data and generate prediction file for CoNLL evaluation.
+
+    Args:
+        preWeights (torch.Tensor): Pre-trained embedding weights matrix.
+        test_loader (DataLoader): Test data loader.
+        processor (Preprocessor): Preprocessor instance with word/tag mappings.
+        layer_mode (str): Type of RNN layer ("RNN", "LSTM", or "GRU").
+        bidirect (bool): Whether model uses bidirectional RNN.
+        device (torch.device): Device to run evaluation on.
+        hidden_size (int): Hidden size of RNN layers.
+        n_layers (int): Number of RNN layers.
+        num_classes (int): Number of output classes.
+        fine_tune (bool): Whether model was fine-tuned (affects saved model filename).
+    """
     nn_model = VanillaRNN(
         preWeights=preWeights,
         layer_mode=layer_mode,
@@ -243,6 +288,12 @@ def eval_RNN(
 
 
 def main():
+    """Main function to train and evaluate RNN models for sequence tagging.
+
+    Loads data, trains multiple RNN variants (RNN/LSTM/GRU with uni/bidirectional),
+    selects the best model for fine-tuning with embeddings, and evaluates all models
+    on test data using CoNLL evaluation metrics.
+    """
     device, cpu_count = configuration()
     processor = Preprocessor()
     train = processor.load_data("conll2003/train.txt")

@@ -3,6 +3,11 @@ import torch.nn as nn
 
 
 class VanillaRNN(nn.Module):
+    """RNN-based sequence tagger using pretrained embeddings.
+
+    Supports RNN, LSTM, and GRU recurrent layers, optional bidirectionality,
+    and optional fine-tuning of the embedding weights.
+    """
 
     def __init__(
         self,
@@ -14,6 +19,17 @@ class VanillaRNN(nn.Module):
         n_layers=1,
         num_classes=10,
     ):
+        """Initialize the VanillaRNN model.
+
+        Args:
+            preWeights (ndarray or torch.Tensor): Pretrained embedding weights with shape (vocab_size, embedding_dim).
+            layer_mode (str): Type of recurrent layer, one of "RNN", "LSTM", or "GRU".
+            fine_tune (bool): If True, allow embedding weights to be updated during training.
+            bidirect (bool): If True, use a bidirectional recurrent layer.
+            hiddenSize (int): Hidden size of the recurrent layer.
+            n_layers (int): Number of recurrent layers.
+            num_classes (int): Number of output classes per time step (vocabulary tags).
+        """
         super(VanillaRNN, self).__init__()
 
         # parameters
@@ -58,6 +74,14 @@ class VanillaRNN(nn.Module):
         self.fc = nn.Linear(hiddenSize * num_directions, num_classes)
 
     def forward(self, x):
+        """Perform a forward pass through the model.
+
+        Args:
+            x (torch.LongTensor): Input tensor of token indices with shape (batch_size, seq_len).
+
+        Returns:
+            torch.Tensor: Logits for each token with shape (batch_size, seq_len, num_classes).
+        """
         embeds = self.embedding(x)
         nn_out, _ = self.nn(embeds)
         logits = self.fc(nn_out)

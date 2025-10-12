@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class Preprocessor:
+    """Preprocess CONLL-style data into fixed-length sentences and build mappings."""
+
     def __init__(self):
+        """Initialize internal mappings, sets, and max sentence length."""
         self.dictionary = {}
         self.word_to_idx = {}
         self.idx_to_word = {}
@@ -27,10 +30,16 @@ class Preprocessor:
         self.target_set.add("<pad>")
 
     def load_data(self, filepath: str) -> List[Tuple[List[str], List[str]]]:
-        """Load and preprocess data from the specified file."""
+        """Load and preprocess data from the specified file.
+
+        Returns a list of (words_list, targets_list) where each sentence has been
+        padded or truncated to the maximum sentence length (for training files the
+        maximum is inferred from the data). Also builds word/target mappings for
+        training files.
+        """
         training = self.detect_train_or_test(filepath)
         sentences = []
-        logger.info(f"Loading {"training" if training else "validation/test"} data...")
+        logger.info(f'Loading {"training" if training else "validation/test"} data...')
 
         with open(filepath, "rt", encoding="utf-8") as f:
             data = []
@@ -67,21 +76,13 @@ class Preprocessor:
                 word: idx for idx, word in enumerate(sorted(self.word_set))
             }
             self.word_to_idx["<PAD>"] = len(self.word_to_idx)
-            self.idx_to_word = {
-                idx: word
-                for word, idx in self.word_to_idx.items()
-            }
+            self.idx_to_word = {idx: word for word, idx in self.word_to_idx.items()}
 
             self.target_to_idx = {
                 target: idx
-                for idx, target in enumerate(
-                    sorted(t for t in self.target_set)
-                )
+                for idx, target in enumerate(sorted(t for t in self.target_set))
             }
-            self.idx_to_target = {
-                idx: tag
-                for tag, idx in self.target_to_idx.items()
-            }
+            self.idx_to_target = {idx: tag for tag, idx in self.target_to_idx.items()}
 
         logger.info(
             f"Loaded {len(sentences)} sentences. Max sentence length: {self.maximize_sentence_length}"
@@ -90,13 +91,21 @@ class Preprocessor:
         return output
 
     def remain_capital_words(self, content: str) -> str:
+        """Return the word lowercased only if it matches Capitalized format (e.g., 'London').
+
+        Leaves other tokens unchanged.
+        """
         result = re.match(r"^[A-Z]{1}[a-z]+$", content)
         return content.lower() if result else content
 
     def make_every_sentence_same_length(
         self, sentences: List[List[List[str]]], max_length: int
     ) -> List[List[List[str]]]:
+        """Pad or truncate each sentence to the given max_length.
 
+        Pads with ["<PAD>", "<pad>"] pairs. Ensures all sentences returned have
+        length == max_length.
+        """
         for i, sentence in enumerate(sentences):
             current_length = len(sentence)
 
@@ -116,6 +125,7 @@ class Preprocessor:
     def return_training(
         self, sentences: List[List[List[str]]]
     ) -> List[Tuple[List[str], List[str]]]:
+        """Convert list of [word, target] pairs per sentence into tuple (words, targets)."""
         response = []
         for sentence in sentences:
 
@@ -128,12 +138,18 @@ class Preprocessor:
         return response
 
     def updated_dictionary(self, word: str, target: str):
+        """Record a mapping from a word to possible target tags (avoids duplicates)."""
         if word not in self.dictionary:
             self.dictionary[word] = [target]
         elif target not in self.dictionary[word]:
             self.dictionary[word].append(target)
 
     def detect_train_or_test(self, file_path: str) -> bool:
+        """Detect whether the file is training data based on filename.
+
+        Returns True for 'train' in path, False for 'valid' or 'test'. Raises
+        ValueError if none of these substrings are present.
+        """
         if "train" in file_path:
             return True
         elif "valid" in file_path:
