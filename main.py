@@ -87,6 +87,9 @@ def train_RNN(
     loss_record.append([200.0, 100.0])
     epoch = 0
 
+    best_val_loss = float("inf")
+    best_model = None
+
     # Early stopping condition: stop if the improvement in loss is less than loss_delta
     while loss_record[-1][-2] - loss_record[-1][-1] > loss_delta:
         nn_model.train()
@@ -123,17 +126,25 @@ def train_RNN(
         epoch_acc = calculate_accuracy(outputs, labels, pad_tag_id)
 
         avg_loss = epoch_loss / len(train_loader)
+        avg_val_loss = val_loss / len(valid_loader)
 
         # Change to validation loss for early stopping
-        loss_record[-1].append(val_loss)
+        loss_record[-1].append(avg_val_loss)
+
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_model = nn_model.state_dict().copy()
+            logger.info(
+                f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.4f}"
+            )
 
         # Step the LR scheduler based on epoch and log current LR
         scheduler.step()
         logger.info(
             f"Epoch {epoch+1}, "
             f"Avg Loss: {avg_loss:.4f}, "
-            f"Val Accuracy: {epoch_acc:.6f}% "
-            f"Val Loss: {val_loss/len(valid_loader):.4f} "
+            f"Val Accuracy: {epoch_acc:.4f}% "
+            f"Val Loss: {avg_val_loss:.6f} "
         )
         epoch += 1
     logger.info(
@@ -150,7 +161,7 @@ def train_RNN(
     save_path = (
         f"./results/train/{layer_mode}_{direction}{"_embbed" if fine_tune else ""}.pth"
     )
-    torch.save(nn_model.state_dict(), save_path)
+    torch.save(best_model, save_path)
     logger.info(f"Model weights saved to {save_path}")
 
 
