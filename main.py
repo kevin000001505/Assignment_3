@@ -282,8 +282,8 @@ def eval_RNN(
                         # NOTE have to remove predicted tag <pad> too or it'll break the eval code
                         if word != "<PAD>" and p_tag != "<pad>":
                             f.write(f"{word} {r_tag} {p_tag}\n")
-
-    logger.info(f"Generated {file_name}")
+    
+    logger.info(f"Generated {file_name} {"embbed" if fine_tune else ""}")
     logger.info(eval.evaluate_conll_file(open(txt, "r")))
 
 
