@@ -67,6 +67,7 @@ def train_RNN(
     loss_delta=1e-3,
     lr_step_size: int = 20,
     lr_gamma: float = 0.5,
+    n_epoches: int = 1000,
 ):
     nn_model = VanillaRNN(
         preWeights=preWeights,
@@ -85,13 +86,14 @@ def train_RNN(
     direction = "bidirectional" if bidirect else "unidirectional"
     logger.info(f"Start training for Vanilla{layer_mode} {direction}:")
     loss_record.append([200.0, 100.0])
-    epoch = 0
 
     best_val_loss = float("inf")
     best_model = None
+    patience = 10
+    epoch_no_improve = 0
 
     # Early stopping condition: stop if the improvement in loss is less than loss_delta
-    while loss_record[-1][-2] - loss_record[-1][-1] > loss_delta:
+    for epoch in range(n_epoches):
         nn_model.train()
         epoch_loss = 0.0
         val_loss = 0.0
@@ -135,16 +137,30 @@ def train_RNN(
             best_val_loss = avg_val_loss
             best_model = nn_model.state_dict().copy()
             logger.info(
-                f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.4f}"
+                f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.7f}"
             )
+            epoch_no_improve = 0
+        else:
+            epoch_no_improve += 1
+            logger.info(f"No improvement in val loss for {epoch_no_improve} epochs")
+
+        # Both condition satisfy to stop training
+        if (
+            epoch_no_improve >= patience
+            and loss_record[-1][-2] - loss_record[-1][-1] > loss_delta
+        ):
+            logger.info(
+                f"Early stopping triggered after {patience} epochs with no improvement"
+            )
+            break
 
         # Step the LR scheduler based on epoch and log current LR
         scheduler.step()
         logger.info(
             f"Epoch {epoch+1}, "
             f"Avg Loss: {avg_loss:.4f}, "
-            f"Val Accuracy: {epoch_acc:.4f}% "
-            f"Val Loss: {avg_val_loss:.6f} "
+            f"Val Accuracy: {epoch_acc:.2f}% "
+            f"Val Loss: {avg_val_loss:.7f} "
         )
         epoch += 1
     logger.info(
