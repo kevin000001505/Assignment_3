@@ -12,4 +12,4 @@ dependencies = [
     "matplotlib>=3.10.0",
 ]
 [tool.setuptools]
-py-modules = ["main"]
+py-modules = ["main", "model", "pre_processor", "utils"]
