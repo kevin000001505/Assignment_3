@@ -42,6 +42,8 @@ def calculate_accuracy(
     Returns:
         float: Accuracy percentage (0-100) for non-padded tokens.
     """
+    # Explanation: Compute token-level accuracy by masking out positions where the label is the PAD tag
+    # so padding does not affect the metric.
     total_correct = 0
     total_samples = 0
 
@@ -100,6 +102,9 @@ def train_RNN(
         lr_gamma (float): Multiplicative factor for learning rate decay.
         n_epoches (int): Maximum number of training epochs.
     """
+    # Explanation: Build the model and optimizer, train across epochs using CrossEntropyLoss
+    # that ignores PAD labels, track best validation loss with early stopping and a StepLR
+    # scheduler, log metrics, save the best weights, and record the validation loss curve.
     nn_model = VanillaRNN(
         preWeights=preWeights,
         layer_mode=layer_mode,
@@ -238,6 +243,9 @@ def eval_RNN(
         num_classes (int): Number of output classes.
         fine_tune (bool): Whether model was fine-tuned (affects saved model filename).
     """
+    # Explanation: Restore the trained weights, run inference on the test set, write
+    # token gold/pred pairs (excluding PAD) to a file in CoNLL format, and report
+    # CoNLL evaluation metrics.
     nn_model = VanillaRNN(
         preWeights=preWeights,
         layer_mode=layer_mode,
@@ -294,6 +302,10 @@ def main():
     selects the best model for fine-tuning with embeddings, and evaluates all models
     on test data using CoNLL evaluation metrics.
     """
+    # Explanation: End-to-end pipeline: device setup, data loading/preprocessing,
+    # DataLoader creation, embedding loading, hyperparameter setup, training six
+    # model variants, fine-tuning the best, plotting loss curves, and evaluating
+    # both baseline and fine-tuned models on the test set.
     device, cpu_count = configuration()
     processor = Preprocessor()
     train = processor.load_data("conll2003/train.txt")
@@ -316,7 +328,7 @@ def main():
     train_dataset = TensorDataset(X_train, y_train)
     train_loader = DataLoader(
         train_dataset,
-        batch_size=64,
+        batch_size=512,
         shuffle=True,
         num_workers=cpu_count // 2,
         pin_memory=True if device.type == "cuda" else False,
@@ -325,7 +337,7 @@ def main():
     validation_dataset = TensorDataset(X_valid, y_valid)
     valid_loader = DataLoader(
         validation_dataset,
-        batch_size=512,  # This is for validation so just increase until full memory usage
+        batch_size=1024,  # This is for validation so just increase until full memory usage
         shuffle=True,
         num_workers=cpu_count // 2,
         pin_memory=True if device.type == "cuda" else False,
@@ -334,7 +346,7 @@ def main():
     test_dataset = TensorDataset(X_test, y_test)
     test_loader = DataLoader(
         test_dataset,
-        batch_size=512,  # This is for testing so just increase until full memory usage
+        batch_size=1024,  # This is for testing so just increase until full memory usage
         shuffle=True,
         num_workers=cpu_count // 2,
         pin_memory=True if device.type == "cuda" else False,

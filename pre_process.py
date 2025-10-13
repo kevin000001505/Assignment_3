@@ -19,6 +19,8 @@ class Preprocessor:
 
     def __init__(self):
         """Initialize internal mappings, sets, and max sentence length."""
+        # Explanation: Set up containers for vocabulary/tags, index mappings, and tracking
+        # of the maximum sentence length found in training data.
         self.dictionary = {}
         self.word_to_idx = {}
         self.idx_to_word = {}
@@ -37,6 +39,11 @@ class Preprocessor:
         maximum is inferred from the data). Also builds word/target mappings for
         training files.
         """
+        # Explanation: Determine if file is training (to build mappings and compute
+        # max length). Read CONLL-style lines, split sentences on blank lines,
+        # normalize words, collect tags, track max length, then pad/truncate all
+        # sentences to that length. Finally build index mappings for words/tags
+        # for training files and return parallel (words, tags) per sentence.
         training = self.detect_train_or_test(filepath)
         sentences = []
         logger.info(f'Loading {"training" if training else "validation/test"} data...')
@@ -95,6 +102,8 @@ class Preprocessor:
 
         Leaves other tokens unchanged.
         """
+        # Explanation: If the token matches a single capital letter followed by lowercase
+        # letters (Proper Noun style), convert it to lowercase; otherwise keep as-is.
         result = re.match(r"^[A-Z]{1}[a-z]+$", content)
         return content.lower() if result else content
 
@@ -106,6 +115,8 @@ class Preprocessor:
         Pads with ["<PAD>", "<pad>"] pairs. Ensures all sentences returned have
         length == max_length.
         """
+        # Explanation: For each sentence, append PAD tokens up to max_length or truncate
+        # longer sentences. Assert that all sentences end up exactly max_length.
         for i, sentence in enumerate(sentences):
             current_length = len(sentence)
 
@@ -126,6 +137,8 @@ class Preprocessor:
         self, sentences: List[List[List[str]]]
     ) -> List[Tuple[List[str], List[str]]]:
         """Convert list of [word, target] pairs per sentence into tuple (words, targets)."""
+        # Explanation: Split each sentence’s [word, tag] pairs into two parallel lists:
+        # one containing words and one containing tags.
         response = []
         for sentence in sentences:
 
@@ -139,6 +152,8 @@ class Preprocessor:
 
     def updated_dictionary(self, word: str, target: str):
         """Record a mapping from a word to possible target tags (avoids duplicates)."""
+        # Explanation: Maintain a dictionary from word -> list of unique tags seen
+        # for that word in the training data.
         if word not in self.dictionary:
             self.dictionary[word] = [target]
         elif target not in self.dictionary[word]:
@@ -150,6 +165,8 @@ class Preprocessor:
         Returns True for 'train' in path, False for 'valid' or 'test'. Raises
         ValueError if none of these substrings are present.
         """
+        # Explanation: Use filename substring matching to decide processing mode and
+        # raise if the path does not include an expected split indicator.
         if "train" in file_path:
             return True
         elif "valid" in file_path:
@@ -161,6 +178,7 @@ class Preprocessor:
 
 
 if __name__ == "__main__":
+    # Explanation: Example usage that loads train/valid/test from a local conll2003 folder.
     preprocessor = Preprocessor()
     train = preprocessor.load_data("conll2003/train.txt")
     valid = preprocessor.load_data("conll2003/valid.txt")

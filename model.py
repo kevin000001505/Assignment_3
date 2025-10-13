@@ -30,6 +30,9 @@ class VanillaRNN(nn.Module):
             n_layers (int): Number of recurrent layers.
             num_classes (int): Number of output classes per time step (vocabulary tags).
         """
+        # Explanation: Create an embedding layer initialized by preWeights (optionally trainable),
+        # select the requested recurrent module (RNN/LSTM/GRU) with optional bidirectionality,
+        # and add a linear layer to project hidden states to tag logits.
         super(VanillaRNN, self).__init__()
 
         # parameters
@@ -82,6 +85,8 @@ class VanillaRNN(nn.Module):
         Returns:
             torch.Tensor: Logits for each token with shape (batch_size, seq_len, num_classes).
         """
+        # Explanation: Embed token indices, process with the recurrent layer,
+        # then apply a linear projection at each time step to produce per-token logits.
         embeds = self.embedding(x)
         nn_out, _ = self.nn(embeds)
         logits = self.fc(nn_out)
