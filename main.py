@@ -1,5 +1,6 @@
 import os
 import logging
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -228,6 +229,7 @@ def eval_RNN(
     n_layers=1,
     num_classes=10,
     fine_tune: bool = False,
+    best: bool = True,
 ):
     """Evaluate a trained RNN model on test data and generate prediction file for CoNLL evaluation.
 
@@ -257,13 +259,17 @@ def eval_RNN(
 
     direction = "bidirectional" if bidirect else "unidirectional"
     file_name = f"{layer_mode}_{direction}{"_embbed" if fine_tune else ""}"
-    saved_weights_path = f"./results/train/{file_name}.pth"
-    nn_model.load_state_dict(torch.load(saved_weights_path))
-    logger.info(f"Generating test file for {file_name}...")
 
     nn_model.eval()
+    if best:
+        txt = f"./results/best_model/{file_name}_best.txt"
+        saved_weights_path = f"./results/best_model/{file_name}.pth"
+    else:
+        txt = f"./results/test/{file_name}.txt"
+        saved_weights_path = f"./results/train/{file_name}.pth"
 
-    txt = f"./results/test/{file_name}.txt"
+    nn_model.load_state_dict(torch.load(saved_weights_path))
+    logger.info(f"Generating test file for {file_name}...")
     with open(txt, "w") as f:
         with torch.no_grad():
             idx_to_word = processor.idx_to_word
@@ -306,6 +312,14 @@ def main():
     # DataLoader creation, embedding loading, hyperparameter setup, training six
     # model variants, fine-tuning the best, plotting loss curves, and evaluating
     # both baseline and fine-tuned models on the test set.
+
+    parser = argparse.ArgumentParser(
+        description="Train and evaluate RNN models for sequence tagging"
+    )
+    parser.add_argument(
+        "--eval", action="store_true", help="Only perform evaluation without training"
+    )
+    args = parser.parse_args()
     device, cpu_count = configuration()
     processor = Preprocessor()
     train = processor.load_data("conll2003/train.txt")
@@ -377,84 +391,100 @@ def main():
     # store [Model, bidirectional]
     combo = []
 
-    for layer_mode in ["RNN", "LSTM", "GRU"]:
-        for bidirect in [False, True]:
-            combo.append((layer_mode, bidirect))
-            train_RNN(
+    if not args.eval:
+        logger.info("Starting training for all model combinations...")
+        for layer_mode in ["RNN", "LSTM", "GRU"]:
+            for bidirect in [False, True]:
+                combo.append((layer_mode, bidirect))
+                train_RNN(
+                    preWeights,
+                    train_loader,
+                    valid_loader,
+                    False,  # Freeze weights for the first 6 models
+                    layer_mode,
+                    bidirect,
+                    device,
+                    loss_record,
+                    hidden_size,
+                    n_layers,
+                    pad_tag_id,
+                    num_classes,
+                    learning_rate,
+                    loss_delta,
+                )
+
+        # Pick the best performing one and train again while also updating embeddings
+        # TODO Bonus point
+        avg_losses = [rec[-1] for rec in loss_record]
+        min_loss_i = avg_losses.index(min(avg_losses))
+        train_RNN(
+            preWeights,
+            train_loader,
+            valid_loader,
+            True,  # Update weights while training
+            combo[min_loss_i][0],
+            combo[min_loss_i][1],
+            device,
+            loss_record,
+            hidden_size,
+            n_layers,
+            pad_tag_id,
+            num_classes,
+            learning_rate,
+            loss_delta,
+        )
+
+        plt.xlabel("Epoch")
+        plt.ylabel("Average Loss")
+        plt.title("Training loss curves")
+        plt.legend()
+        plt.xscale("log")
+        plt.grid(True)
+        plt.savefig("./results/train/train_loss_curve.png")
+        logger.info("Loss curve saved. Check ./results/train/train_loss_curve.png")
+
+        for mode, bidirect in combo:
+            eval_RNN(
                 preWeights,
-                train_loader,
-                valid_loader,
-                False,  # Freeze weights for the first 6 models
-                layer_mode,
+                test_loader,
+                processor,
+                mode,
                 bidirect,
                 device,
-                loss_record,
                 hidden_size,
                 n_layers,
-                pad_tag_id,
                 num_classes,
-                learning_rate,
-                loss_delta,
             )
-
-    # Pick the best performing one and train again while also updating embeddings
-    # TODO Bonus point
-    avg_losses = [rec[-1] for rec in loss_record]
-    min_loss_i = avg_losses.index(min(avg_losses))
-    train_RNN(
-        preWeights,
-        train_loader,
-        valid_loader,
-        True,  # Update weights while training
-        combo[min_loss_i][0],
-        combo[min_loss_i][1],
-        device,
-        loss_record,
-        hidden_size,
-        n_layers,
-        pad_tag_id,
-        num_classes,
-        learning_rate,
-        loss_delta,
-    )
-
-    plt.xlabel("Epoch")
-    plt.ylabel("Average Loss")
-    plt.title("Training loss curves")
-    plt.legend()
-    plt.xscale("log")
-    plt.grid(True)
-    plt.savefig("./results/train/train_loss_curve.png")
-    logger.info("Loss curve saved. Check ./results/train/train_loss_curve.png")
-
-    for mode, bidirect in combo:
         eval_RNN(
             preWeights,
             test_loader,
             processor,
-            mode,
-            bidirect,
+            combo[min_loss_i][0],
+            combo[min_loss_i][1],
             device,
             hidden_size,
             n_layers,
             num_classes,
+            True,
         )
-    eval_RNN(
-        preWeights,
-        test_loader,
-        processor,
-        combo[min_loss_i][0],
-        combo[min_loss_i][1],
-        device,
-        hidden_size,
-        n_layers,
-        num_classes,
-        True,
-    )
 
-    logger.info(
-        f"Evaluating the best model after fine-tuning embeddings on test set: Model: {combo[min_loss_i][0]} {'bidirectional' if combo[min_loss_i][1] else 'unidirectional'}"
-    )
+        logger.info(
+            f"Evaluating the best model after fine-tuning embeddings on test set: Model: {combo[min_loss_i][0]} {'bidirectional' if combo[min_loss_i][1] else 'unidirectional'}"
+        )
+    else:
+        logger.info("Skipping training. Only performing best model evaluation...")
+        eval_RNN(
+            preWeights,
+            test_loader,
+            processor,
+            "RNN",
+            True,
+            device,
+            hidden_size,
+            n_layers,
+            num_classes,
+            False,
+        )
 
 
 if __name__ == "__main__":
